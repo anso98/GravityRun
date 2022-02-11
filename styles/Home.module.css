@@ -130,6 +130,12 @@
 
 }
 
+.box {
+  background-image: url(../img/HomeScreen.png);
+  padding: 100px;
+  margin: 100px;
+}
+
 @media (max-width: 600px) {
   .grid {
     width: 100%;

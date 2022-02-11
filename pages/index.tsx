@@ -24,10 +24,10 @@ import { height } from '@mui/system';
 
 
 var unityContext = new UnityContext({
-  loaderUrl: "unitybuild/AnotherTestApp.loader.js",
-  dataUrl: "unitybuild/AnotherTestApp.data",
-  frameworkUrl: "unitybuild/AnotherTestApp.framework.js",
-  codeUrl: "unitybuild/AnotherTestApp.wasm",
+  loaderUrl: "unitybuild/GravityRunWebGL.loader.js",
+  dataUrl: "unitybuild/GravityRunWebGL.data",
+  frameworkUrl: "unitybuild/GravityRunWebGL.framework.js",
+  codeUrl: "unitybuild/GravityRunWebGL.wasm",
   });
 
    // set the host to Devnet
@@ -223,6 +223,9 @@ const Home: NextPage = () => {
          <button onClick={() => {send(msg)}}> send msg</button>
          <button onClick={handleOnClickFullscreen}> fullscreen </button>
 
+       </div>
+       <div className="box">
+         <img src="img/HomeScreen.png"></img>
        </div>
        
        <Unity
