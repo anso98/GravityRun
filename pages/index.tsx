@@ -1,6 +1,6 @@
 import type { NextPage } from 'next';
 import { WalletDisconnectButton, WalletMultiButton } from '@solana/wallet-adapter-react-ui';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import Head from 'next/head';
 import styles from '../styles/Home.module.css';
 /*import styled from 'styled-components';*/
@@ -16,13 +16,16 @@ import {
     getCandyMachineState,
     mintOneToken,
   } from '../components/candy-machine';
-import { Button } from '@mui/material';
+import { Autocomplete, Button } from '@mui/material';
 import Message from '../components/Message';
 import {MessageProp} from '../components/Message';
 import {getParsedNftAccountsByOwner} from "@nfteyez/sol-rayz"
 import { height } from '@mui/system';
+import { assert } from 'console';
+import axios from "axios";
 
 
+ /* ------------------------------------------ Initialise APIs -------------------------------------------- */
 var unityContext = new UnityContext({
   loaderUrl: "unitybuild/GravityRunWebGL.loader.js",
   dataUrl: "unitybuild/GravityRunWebGL.data",
@@ -42,6 +45,7 @@ var unityContext = new UnityContext({
 /* This function returns the layout of the hompage, including two buttons to connect and disconnect the wallet*/
 const Home: NextPage = () => {   
   
+  /* ------------------------------------------ Minting Functions -------------------------------------------- */
   // call to useWallet function to get the info about connected wallet, like the public key
   const wallet = useWallet(); 
 
@@ -65,17 +69,20 @@ const Home: NextPage = () => {
     
     //function declaration -> the setCandyMachine function determines the candyMachine variable
     const [candyMachine, setCandyMachine] = useState<CandyMachineAccount>();
-     
+    const candyRef = useRef<CandyMachineAccount>();
     // takes the wallet variable initialised above and creates an anchorWallet i.e. a Wallet usable by Anchor client
     
-   
+  useEffect(() => {
+    candyRef.current = candyMachine;
+  }, [candyMachine])
 
   const Mint = async() => { 
+    
     // turnes the public key string below into a public key object (required for the next functions)
     const getCandyMachineId = (): anchor.web3.PublicKey | undefined => {
       try {
         const candyMachineId = new anchor.web3.PublicKey(
-          "H6JikzHLKqVjafkE6vUaSjmXL3J4ZyhZoxJQ1h3oxXCD"
+          "FoKWBLLNX3HrCTh6MDr1hUWLecDEEgBx7pjULqa4kadd"
         ); 
         return candyMachineId; // returns the candyMachineID
       } catch (e) {
@@ -86,12 +93,11 @@ const Home: NextPage = () => {
     // calls the above function to construct the public key object
     const candyMachineId = getCandyMachineId()
 
-   
-      
       // gets the state of the candy machine on the blockchain and stores this with setCandyMachine 
       // in the candyMachine variable declared above
+      var cndy: CandyMachineAccount;
       if(anchorWallet && candyMachineId){
-        const cndy = await getCandyMachineState(
+        cndy = await getCandyMachineState(
          anchorWallet,
          candyMachineId,
          connection,
@@ -101,131 +107,144 @@ const Home: NextPage = () => {
     
     // if the wallet is connected and both the candyMachine and wallet PubKey are not NULL, then mint
     // using the candy machine stored in the candyMachine variable and the wallet Public key of the user
-    if (wallet.connected && candyMachine?.program && wallet.publicKey){
-          await mintOneToken(candyMachine, wallet.publicKey)
-          console.log("minted")
-          send("minted Spaceman")
-        }
+    console.log(wallet.connected)
+    console.log(wallet.publicKey)
+    var machine: CandyMachineAccount | undefined = candyMachine
+    if(candyMachine == undefined)
+      machine = cndy!;
+    if (wallet.connected && machine!.program && wallet.publicKey){
+        await mintOneToken(machine!, wallet.publicKey)
+        console.log("minted")
+        send("minted")
+    }
   
   }
 
-  /*
-  let nftArray: { id: number, name: string }[] = []
-  nftArray[0] = { "id": 0, "name": "Available" };
-  nftArray.push({ "id": 0, "name": "Available" })
-  console.log(nftArray[0].id)
-  */
+  /* -------------------------------- Reading NFT Data from Wallet in variable -------------------------------- */
 
-  var reload = 0;
-  const [image, setImage] = useState()
-  const [name, setName] = useState<String>()
-  useEffect(() =>{
-    const data = async() => { 
-      const nft_data = await getParsedNftAccountsByOwner({
-        publicAddress: wallet.publicKey, 
-        connection: connection,
-     });
-      setName(nft_data[0].data.name);
-      console.log(nft_data[1].data.uri)
-      async function getImage() {
-        try {
-         let response = await fetch(nft_data[1].data.uri);
-         let responseJson = await response.json();
-         return responseJson.image;
-        } catch(error) {
-         console.error(error);
+  // Create relevant NFT data interface used
+  interface relevantNFT {
+    name: string;
+    uri: string;
+    mint: string;
+  }
+ 
+  // Declare state variables
+  const [NFTNameArray, setNFTNameArray] = useState<string[]>([]);
+  const nameRef = useRef<string []>();
+
+  const creator_id = 'AVabPm3PB7JxaNND5UKJRXQh4XRY4Mwjkg2nGAEG3TGn';
+  const [reader, setReader] = useState<NodeJS.Timeout>()
+  const [gameLoaded, setLoaded] = useState<boolean>()
+  const [log, setLog] = useState(0);
+
+    // Used to update a reference about the state of the NFTNameArray
+      useEffect(() => {
+        nameRef.current = NFTNameArray;
+      },[NFTNameArray])
+      
+      // Async functions to get the wallet -> NFT Data
+      const walletReader = async () => { 
+        if(wallet.connected && wallet.publicKey){
+          
+          // Get wallet content
+          const walletContent = await getParsedNftAccountsByOwner({
+            publicAddress: wallet.publicKey,
+            connection: connection,
+          });
+
+          // Check if Wallet contains any NFTs
+          if(walletContent == null){
+            return;
+          }
+          // Transfer NFTnames to temp Array if they are game-relevant NFTs
+          let tempNFTNameArray: Array<string> = [];
+          for(let i = 0; i < walletContent.length; i++){
+            if (walletContent[i].data.creators[1].address == creator_id){
+              tempNFTNameArray.push(walletContent[i].data.name)
+              console.log("test")
+            }
+          }
+          // Check whether Array has changed 
+          // Todo: edge case if length is not the same, then check for changes
+          console.log("checked for difference")
+          if (tempNFTNameArray.length != nameRef.current!.length){
+            setNFTNameArray(tempNFTNameArray);
+            console.log(tempNFTNameArray)
+            let msgArray = tempNFTNameArray.join("+");
+            send(msgArray) // Send information to unity!
+            console.log("sent update");
+          }   
         }
       }
-      setImage(await getImage()) // sets image URI to image, to be displayed on website
-      send(nft_data[1].data.name.toString()) // Sends NFT name to unity
-      return nft_data;
-    }
-    if(wallet.connected)
-      data()
-  },[wallet, reload])
 
-  
+      // Called when there is log notification sent by solana  - any transaction!
+      useEffect(() => {
+        walletReader()
+      }, [wallet.connected, gameLoaded,log])
 
-  // Creating the Unity Context Instance
-  // https://github.com/jeffreylanters/react-unity-webgl/discussions/242
-  /*const [unityContext, setUnity] = useState<UnityContext>()
-  useEffect(() => {
-    var new_untiy_context = new UnityContext({
-      loaderUrl: "unitybuild/AnotherTestApp.loader.js",
-      dataUrl: "unitybuild/AnotherTestApp.data",
-      frameworkUrl: "unitybuild/AnotherTestApp.framework.js",
-      codeUrl: "unitybuild/AnotherTestApp.wasm",
+      // every 30 seconds check again
+      useEffect(() => { 
+        if(reader != undefined){
+          clearInterval(reader)
+        }
+        console.log("new interval")
+        if(wallet.connected){
+          setReader(setInterval(walletReader,30000))
+        }
+      }, [wallet.connected, gameLoaded,log])
+
+      // Implements the log -> makes sure we get log information
+      useEffect(() => {
+        if(wallet.connected){
+          connection.onLogs(wallet.publicKey!, (changes) => {console.log("logged changes", changes); setLog(state => state+1)})
+        }
+      }, [wallet.connected, gameLoaded])
+
+      // checking mechanismn is initalised only when game was loaded
+      unityContext.on("loaded", () => {
+        setLoaded(true)
       });
-    setUnity(new_untiy_context);
-  },[]);
-  */
-/*
-  const getBalance = async() => {
-    if(wallet.publicKey){
-      const candy = new anchor.web3.PublicKey(
-        "8aYkMCQRGWdHos3SiDBN5KX8pWZU5uUqVjdVZ4GxvFkY"
-      var balance = await connection.getTokenAccountsByOwner(wallet.publicKey, Mint: candy)
-      send(balance.value.amount.toString())
-    }
-  }*/
-  console.log("name: ", name)
-  
+    
+   
+
+   /* ------------------------------------------ Unity Interaction -------------------------------------------- */
+ 
   // Full screen handler
   function handleOnClickFullscreen() {
     if(unityContext)
       unityContext.setFullscreen(true);
   }
 
-  var msg = "no wallet detected";
-  if (wallet.connected && wallet.publicKey != null){
-    msg = wallet.publicKey?.toBase58()
-  }
-
-  //send message
+  //send message to unity
   function send(message: string | boolean ){
-    console.log("test")
-    
     console.log("function called")
     console.log("message is:", message)
     message = "Message is: " + message;
-    unityContext!.send("datareadcontroller", "GetNFTData", message)
-}
+    unityContext!.send("Inventory", "GetNFTData", message)
+  }
 
   // Event Listener for Mint Event
-  if(unityContext){
+  if(unityContext) {
     unityContext.on("Mint", async () => {
       const result = await Mint()
-      reload+=1;
-      send("just minted")
+      walletReader()
     });
   }
- 
+
+  /* ------------------------------------------ Page Content -------------------------------------------- */
+
   return (
     <div>
       <Head>
         <title>NFT Games</title>
       </Head>
-            <h1 className={styles.title}>NFT Games</h1> 
-     <main className={styles.main}>  
-        <div>
-          <div>
-            {name}
-          </div>
-        <img 
-      src={image}
-      style={{height: "10%",
-      width: 200}}/>
-
-        </div>
+            <h1 className={styles.title}>NFT Games</h1>
+     <main className={styles.main}> 
        <div className={styles.walletButtons}>  
          <WalletMultiButton />
          <WalletDisconnectButton />
-         <button onClick={() => {send(msg)}}> send msg</button>
          <button onClick={handleOnClickFullscreen}> fullscreen </button>
-
-       </div>
-       <div className="box">
-         <img src="img/HomeScreen.png"></img>
        </div>
        
        <Unity
